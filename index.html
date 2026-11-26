@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ShedScore Camera</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ShedScore Cam">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.png">
+<style>
+  :root { --black: #070707; --red: #d11124; --muted: #9a9a9e; --line: rgba(255, 255, 255, .16); }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; background: #000; color: #fff; overflow: hidden;
+    font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%; touch-action: manipulation; }
+  [hidden] { display: none !important; }
+
+  /* The live picture: nothing else is on screen while it runs. */
+  #stage { position: fixed; inset: 0; background: #000; }
+  #picture { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+  #stage.fit #picture { object-fit: contain; }
+
+  /* Set-up screen */
+  #setup { position: fixed; inset: 0; overflow-y: auto; background: var(--black);
+    padding: max(28px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+             max(28px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); }
+  .wrap { max-width: 520px; margin: 0 auto; }
+  .eyebrow { margin: 0 0 14px; color: var(--red); font-size: 11px; font-weight: 800; letter-spacing: .23em; text-transform: uppercase; }
+  h1 { margin: 0 0 18px; font-family: "Arial Black", "Helvetica Neue", Arial, sans-serif; font-weight: 900;
+    font-size: clamp(34px, 9vw, 52px); line-height: .9; letter-spacing: -.05em; text-transform: uppercase; }
+  .lead { margin: 0 0 22px; color: #c2c2c5; font-size: 16px; line-height: 1.5; }
+  ol { margin: 0 0 24px; padding: 0; list-style: none; border-top: 1px solid var(--line); counter-reset: step; }
+  ol li { counter-increment: step; display: flex; gap: 14px; padding: 13px 0; border-bottom: 1px solid var(--line);
+    font-size: 14px; line-height: 1.45; color: #e6e6e8; }
+  ol li::before { content: counter(step); flex: none; width: 18px; color: var(--muted); font-size: 11px; font-weight: 800; padding-top: 2px; }
+  .field { margin: 0 0 16px; }
+  .field label, .field .label { display: block; margin: 0 0 8px; color: var(--muted); font-size: 10px; font-weight: 800;
+    letter-spacing: .14em; text-transform: uppercase; }
+  select { width: 100%; min-height: 48px; padding: 0 12px; border: 1px solid rgba(255, 255, 255, .32); border-radius: 0;
+    background: #111; color: #fff; font: inherit; font-size: 16px; }
+  .choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .choice button { min-height: 48px; padding: 0 10px; border: 1px solid rgba(255, 255, 255, .32); background: transparent;
+    color: #fff; font: inherit; font-size: 13px; font-weight: 700; }
+  .choice button[aria-pressed="true"] { background: #fff; border-color: #fff; color: #0b0b0b; }
+  .primary { width: 100%; min-height: 56px; margin-top: 8px; border: 0; background: var(--red); color: #fff;
+    font: inherit; font-size: 15px; font-weight: 800; }
+  .primary:disabled { opacity: .55; }
+  .note { margin: 16px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+  #problem { margin: 0 0 18px; padding: 13px 15px; border-left: 3px solid var(--red); background: #17171a;
+    font-size: 14px; line-height: 1.5; }
+
+  /* Controls shown only after a tap, so they stay out of the recording. */
+  #controls { position: fixed; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+    display: flex; align-items: center; gap: 8px; padding: 8px; background: rgba(10, 10, 10, .82);
+    border: 1px solid var(--line); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    max-width: calc(100vw - 24px); }
+  #controls button { min-height: 44px; padding: 0 14px; border: 1px solid rgba(255, 255, 255, .32); background: transparent;
+    color: #fff; font: inherit; font-size: 13px; font-weight: 700; white-space: nowrap; }
+  #controls #stop { background: #fff; border-color: #fff; color: #0b0b0b; }
+  #reading { padding: 0 8px; color: #c2c2c5; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #hint { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 10px 16px;
+    background: rgba(10, 10, 10, .78); font-size: 13px; font-weight: 700; pointer-events: none;
+    transition: opacity .5s ease; }
+  #hint.gone { opacity: 0; }
+  @media (prefers-reduced-motion: reduce) { #hint { transition: none; } }
+</style>
+</head>
+<body>
+
+<div id="stage" hidden>
+  <video id="picture" playsinline muted autoplay></video>
+  <div id="hint" class="gone" aria-hidden="true">Tap the picture for controls</div>
+  <div id="controls" hidden>
+    <span id="reading" aria-live="polite"></span>
+    <button type="button" id="next-camera">Next camera</button>
+    <button type="button" id="fit-toggle">Fit</button>
+    <button type="button" id="stop">Stop</button>
+  </div>
+</div>
+
+<main id="setup">
+  <div class="wrap">
+    <p class="eyebrow">ShedScore</p>
+    <h1>Phone camera</h1>
+    <p class="lead">Shows this phone’s camera full screen with no buttons, so ShedScore on your Mac can record it through the cable.</p>
+    <p id="problem" role="alert" hidden></p>
+    <ol>
+      <li>Connect this phone to your Mac with a cable.</li>
+      <li>Turn off Portrait Orientation Lock and hold the phone sideways.</li>
+      <li>Start the camera below.</li>
+      <li>In ShedScore, choose “iPhone (USB screen mirror)” as the camera.</li>
+    </ol>
+    <div class="field" id="camera-field" hidden>
+      <label for="camera">Camera</label>
+      <select id="camera"></select>
+    </div>
+    <div class="field">
+      <span class="label" id="shape-label">Picture</span>
+      <div class="choice" role="group" aria-labelledby="shape-label">
+        <button type="button" id="shape-fill" aria-pressed="true">Fill the screen</button>
+        <button type="button" id="shape-fit" aria-pressed="false">Show whole picture</button>
+      </div>
+    </div>
+    <button type="button" class="primary" id="start">Start camera</button>
+    <p class="note" id="home-tip" hidden>For a picture with no Safari bars, tap Share, then “Add to Home Screen”, and open this page from its new icon.</p>
+    <p class="note">The picture stays on this phone and travels to your Mac through the cable. Nothing is uploaded.</p>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const stage = $('stage'), picture = $('picture'), setup = $('setup'), controls = $('controls');
+  const problem = $('problem'), cameraField = $('camera-field'), cameraPicker = $('camera');
+  const startButton = $('start'), hint = $('hint'), reading = $('reading');
+  const STORE = 'shedscore-camera';
+  let stream = null, wakeLock = null, hideTimer = null, running = false;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(STORE) || '{}') || {}; } catch { saved = {}; }
+  let fit = saved.fit === true;
+  let cameraID = typeof saved.cameraID === 'string' ? saved.cameraID : null;
+
+  const remember = () => {
+    try { localStorage.setItem(STORE, JSON.stringify({ fit, cameraID })); } catch { /* private window */ }
+  };
+
+  const showShape = () => {
+    stage.classList.toggle('fit', fit);
+    $('shape-fill').setAttribute('aria-pressed', String(!fit));
+    $('shape-fit').setAttribute('aria-pressed', String(fit));
+    $('fit-toggle').textContent = fit ? 'Fill' : 'Fit';
+  };
+
+  const explain = error => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return 'This browser cannot use the camera here. Open this page in Safari from its https address.';
+    }
+    switch (error && error.name) {
+      case 'NotAllowedError':
+      case 'SecurityError':
+        return 'Camera access was refused. Allow the camera for this page (in Safari: the “aA” or page menu, then Website Settings), then try again.';
+      case 'NotFoundError':
+      case 'OverconstrainedError':
+        return 'That camera is not available. Choose another camera and try again.';
+      case 'NotReadableError':
+      case 'AbortError':
+        return 'The camera is in use by another app. Close the Camera app or any call, then try again.';
+      default:
+        return 'The camera could not start. Close other camera apps and try again.';
+    }
+  };
+
+  const fail = error => {
+    stop(false);
+    problem.textContent = explain(error);
+    problem.hidden = false;
+  };
+
+  const request = id => {
+    const quality = { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } };
+    const video = id ? { deviceId: { exact: id }, ...quality } : { facingMode: { ideal: 'environment' }, ...quality };
+    return navigator.mediaDevices.getUserMedia({ audio: false, video });
+  };
+
+  const listCameras = async () => {
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === 'videoinput' && device.deviceId);
+    cameraPicker.replaceChildren(...devices.map((device, index) => new Option(device.label || `Camera ${index + 1}`, device.deviceId)));
+    cameraField.hidden = devices.length < 2;
+    const live = stream && stream.getVideoTracks()[0];
+    const current = live && live.getSettings().deviceId;
+    if (current && devices.some(device => device.deviceId === current)) { cameraPicker.value = current; cameraID = current; }
+    return devices;
+  };
+
+  const showReading = () => {
+    const track = stream && stream.getVideoTracks()[0];
+    if (!track) { reading.textContent = ''; return; }
+    const { width, height, frameRate } = track.getSettings();
+    reading.textContent = width && height ? `${width} × ${height}${frameRate ? ` · ${Math.round(frameRate)} fps` : ''}` : '';
+  };
+
+  const keepAwake = async () => {
+    if (!('wakeLock' in navigator) || wakeLock || document.visibilityState !== 'visible') return;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch { wakeLock = null; }
+  };
+
+  const release = () => {
+    if (stream) stream.getTracks().forEach(track => track.stop());
+    stream = null;
+    picture.srcObject = null;
+  };
+
+  async function start(id) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { fail(null); return; }
+    startButton.disabled = true;
+    problem.hidden = true;
+    try {
+      release();
+      let next;
+      try { next = await request(id); }
+      catch (error) {
+        // A remembered camera can disappear (a different phone, or a lens iOS no longer lists).
+        if (!id || !['OverconstrainedError', 'NotFoundError'].includes(error.name)) throw error;
+        cameraID = null;
+        next = await request(null);
+      }
+      stream = next;
+      const track = stream.getVideoTracks()[0];
+      track.addEventListener('ended', () => { if (running && stream === next) fail({ name: 'NotReadableError' }); });
+      picture.srcObject = stream;
+      await picture.play().catch(() => {});
+      running = true;
+      cameraID = track.getSettings().deviceId || cameraID;
+      remember();
+      setup.hidden = true;
+      stage.hidden = false;
+      hideControls();
+      hint.classList.remove('gone');
+      setTimeout(() => hint.classList.add('gone'), 2600);
+      await listCameras().catch(() => []);
+      showReading();
+      keepAwake();
+    } catch (error) {
+      fail(error);
+    } finally {
+      startButton.disabled = false;
+    }
+  }
+
+  function stop(clear = true) {
+    running = false;
+    release();
+    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+    hideControls();
+    stage.hidden = true;
+    setup.hidden = false;
+    if (clear) problem.hidden = true;
+  }
+
+  function hideControls() {
+    clearTimeout(hideTimer);
+    controls.hidden = true;
+  }
+
+  function showControls() {
+    showReading();
+    controls.hidden = false;
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hideControls, 4000);
+  }
+
+  startButton.addEventListener('click', () => start(cameraPicker.value || cameraID));
+  cameraPicker.addEventListener('change', () => { cameraID = cameraPicker.value; remember(); });
+  $('shape-fill').addEventListener('click', () => { fit = false; showShape(); remember(); });
+  $('shape-fit').addEventListener('click', () => { fit = true; showShape(); remember(); });
+
+  picture.addEventListener('click', () => { if (controls.hidden) showControls(); else hideControls(); });
+  controls.addEventListener('click', () => { if (!controls.hidden) showControls(); });
+  $('fit-toggle').addEventListener('click', () => { fit = !fit; showShape(); remember(); });
+  $('stop').addEventListener('click', event => { event.stopPropagation(); stop(); });
+  $('next-camera').addEventListener('click', async () => {
+    const devices = await listCameras().catch(() => []);
+    if (devices.length < 2) return;
+    const index = devices.findIndex(device => device.deviceId === cameraID);
+    await start(devices[(index + 1) % devices.length].deviceId);
+    if (running) showControls();
+  });
+
+  // iOS stops the camera and drops the screen lock when the page goes to the background.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !running) return;
+    const track = stream && stream.getVideoTracks()[0];
+    if (!track || track.readyState !== 'live') start(cameraID);
+    else keepAwake();
+  });
+
+  const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches
+    || window.matchMedia('(display-mode: fullscreen)').matches;
+  $('home-tip').hidden = standalone;
+  if (!window.isSecureContext || !navigator.mediaDevices) {
+    problem.textContent = 'Open this page from its https address. Browsers only allow the camera on a secure page.';
+    problem.hidden = false;
+  }
+  showShape();
+})();
+</script>
+</body>
+</html>

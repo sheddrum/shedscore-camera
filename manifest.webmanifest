@@ -1,0 +1,23 @@
+{
+  "name": "ShedScore Camera",
+  "short_name": "ShedScore Cam",
+  "description": "Shows this phone's camera full screen so ShedScore on a Mac can record it through the cable.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": [
+    "fullscreen",
+    "standalone"
+  ],
+  "orientation": "any",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
